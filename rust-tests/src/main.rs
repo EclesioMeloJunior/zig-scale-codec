@@ -11,9 +11,15 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use parity_scale_codec::Encode;
+    use parity_scale_codec::{Compact, Encode};
 
     use crate::Animal;
+
+    #[test]
+    fn encoding_compact_u8() {
+        let compact: Compact<u8> = Compact(0b0011_1111);
+        println!("{:?}", compact.encode());
+    }
 
     #[test]
     fn encoding_struct() {
