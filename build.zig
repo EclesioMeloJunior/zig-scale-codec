@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
+    const exe = b.addExecutable(.{
         .name = "zig-scale-codec",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
@@ -24,24 +24,54 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    addModules(b, exe);
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
-    b.installArtifact(lib);
+    b.installArtifact(exe);
+    const run_exe = b.addRunArtifact(exe);
+
+    const run_step = b.step("run", "Run main function");
+    run_step.dependOn(&run_exe.step);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
-    const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_main_tests = b.addRunArtifact(main_tests);
+    const tests = [_]*std.Build.Step.Compile{
+        b.addTest(.{
+            .root_source_file = .{ .path = "src/main.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
+        b.addTest(.{
+            .root_source_file = .{ .path = "src/codec.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
+        b.addTest(.{
+            .root_source_file = .{ .path = "src/binary.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
+    };
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&run_main_tests.step);
+
+    for (tests) |t| {
+        addModules(b, t);
+        var artifact = b.addRunArtifact(t);
+        test_step.dependOn(&artifact.step);
+    }
+}
+
+fn addModules(b: *std.Build, sc: *std.Build.Step.Compile) void {
+    const zig_bench = b.createModule(.{
+        .source_file = .{ .path = b.pathFromRoot("vendor/zig-bench/bench.zig") },
+        .dependencies = &[_]std.build.ModuleDependency{},
+    });
+
+    sc.addModule("bench", zig_bench);
 }

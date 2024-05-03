@@ -1,8 +1,9 @@
 use parity_scale_codec::{Decode, Encode};
 
 #[derive(Decode, Encode)]
-struct Animal {
+struct Animal<N> {
     name: String,
+    age: N,
 }
 
 fn main() {
@@ -23,11 +24,13 @@ mod test {
 
     #[test]
     fn encoding_struct() {
-        let cow = Animal {
+        let cow = Animal::<u64> {
             name: String::from("cow_name"),
+            age: 10,
         };
+        println!("{:?}", cow.encode());
 
-        let output = cow.encode();
-        println!("{:?}", output);
+        let tuple_cow = (String::from("cow_name"), 10_u64);
+        println!("{:?}", tuple_cow.encode());
     }
 }
