@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const binary = @import("./binary.zig");
 
 fn Compact(comptime T: type) type {
@@ -17,6 +18,7 @@ pub const CompactUint8 = Compact(u8);
 pub const CompactUint16 = Compact(u16);
 pub const CompactUint32 = Compact(u32);
 pub const CompactUint64 = Compact(u64);
+pub const CompactUint128 = Compact(u128);
 
 fn compact_unsigned(comptime T: type, value: T, enc_bytes_ref: *std.ArrayList(u8)) !void {
     comptime {
@@ -43,14 +45,17 @@ fn compact_unsigned(comptime T: type, value: T, enc_bytes_ref: *std.ArrayList(u8
         },
         else => {
             var cpy_value = value;
-            var alpha = if (T == u64) 8 else if (T == u128) 16 else @panic("alpha should be only 8 for u64 or 16 for u128");
+            const alpha = if (T == u64) 8 else if (T == u128) 16 else @panic("alpha should be only 8 for u64 or 16 for u128");
             var bytes_needed = alpha - @clz(cpy_value) / 8;
+
+            if (bytes_needed < 4) {
+                @panic("previous match arm matches anyting less than 2^30; qed");
+            }
 
             try enc_bytes_ref.append(0b11 + @as(u8, (bytes_needed - 4) << 2));
 
-            for (1..bytes_needed) |_| {
-                const ls8b: u8 = @truncate(value);
-                try enc_bytes_ref.append(ls8b);
+            for (0..bytes_needed) |_| {
+                try enc_bytes_ref.append(@as(u8, @truncate(cpy_value)));
                 cpy_value >>= 8;
             }
 
@@ -59,4 +64,52 @@ fn compact_unsigned(comptime T: type, value: T, enc_bytes_ref: *std.ArrayList(u8
             }
         },
     }
+}
+
+test "compact_encode" {
+    var compact_u32: CompactUint32 = .{ .value = 1 };
+    var arr = std.ArrayList(u8).init(testing.allocator);
+    defer arr.deinit();
+
+    try compact_u32.encode(&arr);
+    try testing.expect(std.mem.eql(u8, &[_]u8{0x04}, arr.items));
+
+    arr.clearRetainingCapacity();
+
+    var compact_u64: CompactUint64 = .{ .value = 42 };
+    try compact_u64.encode(&arr);
+    try testing.expect(std.mem.eql(u8, &[_]u8{0xa8}, arr.items));
+
+    arr.clearRetainingCapacity();
+
+    var compact_u128: CompactUint128 = .{ .value = 69 };
+    try compact_u128.encode(&arr);
+    try testing.expect(std.mem.eql(u8, &[_]u8{ 0x15, 0x01 }, arr.items));
+
+    arr.clearRetainingCapacity();
+
+    compact_u64 = .{ .value = 65535 };
+    try compact_u64.encode(&arr);
+    try testing.expect(std.mem.eql(u8, &[_]u8{ 0xfe, 0xff, 0x03, 0x00 }, arr.items));
+
+    arr.clearRetainingCapacity();
+
+    compact_u64 = .{ .value = std.math.maxInt(u64) };
+    try compact_u64.encode(&arr);
+
+    try testing.expect(std.mem.eql(u8, &[_]u8{ 19, 255, 255, 255, 255, 255, 255, 255, 255 }, arr.items));
+
+    arr.clearRetainingCapacity();
+
+    compact_u128 = .{ .value = 100000000000000 };
+    try compact_u128.encode(&arr);
+
+    try testing.expect(std.mem.eql(u8, &[_]u8{ 11, 0, 64, 122, 16, 243, 90 }, arr.items));
+
+    // var compact: CompactUint128 = .{ .value = 100000000000000 };
+    // var arr = std.ArrayList(u8).init(testing.allocator);
+    // try compact.encode(&arr);
+
+    // var exp = &[_]u8{ 0x0b, 0x00, 0x40, 0x7a, 0x10, 0xf3, 0x5a };
+    // try testing.expect(std.mem.eql(u8, exp, arr.items));
 }

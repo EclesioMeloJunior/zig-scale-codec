@@ -18,6 +18,7 @@ pub fn SizeHint(comptime T: type) usize {
 pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
     switch (@typeInfo(T)) {
         .Int => try encode_integer(T, to_encode, enc),
+        .Bool => try encode_boolean(to_encode, enc),
         .Struct => try encode_struct(T, to_encode, enc),
         else => @compileError("encoding only supports structs"),
     }
@@ -49,6 +50,24 @@ pub fn encode_integer(comptime T: type, value: T, enc: *std.ArrayList(u8)) !void
     var buf: [@sizeOf(T)]u8 = undefined;
     binary.LittleEndianEncode(T, value, &buf);
     try enc.appendSlice(&buf);
+}
+
+pub fn encode_boolean(value: bool, enc: *std.ArrayList(u8)) !void {
+    if (value) try enc.append(0x01) else try enc.append(0x00);
+}
+
+test "encode_bool" {
+    var true_output = std.ArrayList(u8).init(testing.allocator);
+    defer true_output.deinit();
+    var exp = &[_]u8{0x01};
+    try Encode(bool, true, &true_output);
+    try testing.expect(std.mem.eql(u8, exp, true_output.items));
+
+    var false_output = std.ArrayList(u8).init(testing.allocator);
+    defer false_output.deinit();
+    exp = &[_]u8{0x00};
+    try Encode(bool, false, &false_output);
+    try testing.expect(std.mem.eql(u8, exp, false_output.items));
 }
 
 test "encode_integer" {
