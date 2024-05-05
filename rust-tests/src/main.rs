@@ -23,6 +23,11 @@ mod test {
     }
 
     #[test]
+    fn encoding_integers() {
+        println!("{:?}", i8::MIN.encode());
+    }
+
+    #[test]
     fn encoding_struct() {
         let cow = Animal::<u64> {
             name: String::from("cow_name"),

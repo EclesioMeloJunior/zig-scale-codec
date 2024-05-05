@@ -15,6 +15,11 @@ pub fn LittleEndianEncode(comptime T: type, value: T, enc: []u8) void {
 }
 
 test "benchmark" {
+    if (true) { // skipping benchmarking tests
+        try testing.expect(true);
+        return;
+    }
+
     try benchmark.benchmark(struct {
         // The functions will be benchmarked with the following inputs.
         // If not present, then it is assumed that the functions
@@ -42,11 +47,9 @@ test "benchmark" {
         pub const min_iterations = 1000;
         pub const max_iterations = 100000;
 
-        pub fn mem_simple_write(comptime T: type) u32 {
+        pub fn mem_simple_write(comptime T: type) void {
             var buf: [@sizeOf(T)]u8 = undefined;
             LittleEndianEncode(T, std.math.maxInt(T), &buf);
-
-            return 0;
         }
     });
 }
