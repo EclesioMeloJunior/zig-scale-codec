@@ -35,7 +35,20 @@ pub fn encode_struct(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !v
                 const integer: field.type = @field(to_encode, field.name);
                 try encode_integer(field.type, integer, enc);
             },
-            else => @compileError("structs only supports []const u8"),
+            else => {
+                switch (@typeInfo(field.type)) {
+                    .Optional => {
+                        const opt: field.type = @field(to_encode, field.name);
+                        if (opt) |inner_value| {
+                            try enc.append(0x01);
+                            try Encode(@TypeOf(inner_value), inner_value, enc);
+                        } else {
+                            try enc.append(0x00);
+                        }
+                    },
+                    else => @compileError("struct inner type not supported"),
+                }
+            },
         }
     }
 }
@@ -93,6 +106,7 @@ test "encode_integer" {
     const test_cases = [_]Test{
         .{ .ty = u128, .value = TestValue{ .u128 = std.math.maxInt(u128) }, .exp = &[_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff } },
         .{ .ty = u64, .value = TestValue{ .u64 = std.math.maxInt(u64) }, .exp = &[_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff } },
+        .{ .ty = i64, .value = TestValue{ .i64 = std.math.maxInt(i64) }, .exp = &[_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 127 } },
         .{ .ty = u32, .value = TestValue{ .u32 = std.math.maxInt(u32) }, .exp = &[_]u8{ 0xff, 0xff, 0xff, 0xff } },
         .{ .ty = u16, .value = TestValue{ .u16 = std.math.maxInt(u16) }, .exp = &[_]u8{ 0xff, 0xff } },
         .{ .ty = u8, .value = TestValue{ .u8 = std.math.maxInt(u8) }, .exp = &[_]u8{0xff} },
@@ -109,12 +123,11 @@ test "encode_integer" {
     }
 }
 
-test "encode a  basic struct" {
+test "encode a basic struct" {
     const Animal = struct { name: []const u8, age: u64 };
-
     const size_hint = SizeHint(Animal);
 
-    var cow: Animal = .{ .name = "cow_name", .age = 10 };
+    var cow: Animal = .{ .name = "some_name", .age = 10 };
 
     var encoded_bytes = try std.ArrayList(u8).initCapacity(
         testing.allocator,
@@ -124,6 +137,45 @@ test "encode a  basic struct" {
 
     try Encode(Animal, cow, &encoded_bytes);
 
-    var exp = &[_]u8{ 32, 99, 111, 119, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0 };
+    var exp = &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0 };
     try testing.expect(std.mem.eql(u8, exp, encoded_bytes.items));
+}
+
+test "encode a basic struct with optional type" {
+    const Str = struct { str: []const u8, num: u64, opt: ?bool };
+    const str_size_hint = SizeHint(Str);
+
+    var encoded_bytes = try std.ArrayList(u8).initCapacity(
+        testing.allocator,
+        str_size_hint,
+    );
+    defer encoded_bytes.deinit();
+
+    var str: Str = .{ .str = "some_name", .num = 10, .opt = true };
+    try Encode(Str, str, &encoded_bytes);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0, 1, 1 },
+        encoded_bytes.items,
+    ));
+
+    encoded_bytes.clearRetainingCapacity();
+
+    str = .{ .str = "some_name", .num = 10, .opt = false };
+    try Encode(Str, str, &encoded_bytes);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0, 1, 0 },
+        encoded_bytes.items,
+    ));
+
+    encoded_bytes.clearRetainingCapacity();
+
+    str = .{ .str = "some_name", .num = 10, .opt = null };
+    try Encode(Str, str, &encoded_bytes);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0, 0 },
+        encoded_bytes.items,
+    ));
 }

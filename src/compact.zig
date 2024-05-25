@@ -105,11 +105,4 @@ test "compact_encode" {
     try compact_u128.encode(&arr);
 
     try testing.expect(std.mem.eql(u8, &[_]u8{ 11, 0, 64, 122, 16, 243, 90 }, arr.items));
-
-    // var compact: CompactUint128 = .{ .value = 100000000000000 };
-    // var arr = std.ArrayList(u8).init(testing.allocator);
-    // try compact.encode(&arr);
-
-    // var exp = &[_]u8{ 0x0b, 0x00, 0x40, 0x7a, 0x10, 0xf3, 0x5a };
-    // try testing.expect(std.mem.eql(u8, exp, arr.items));
 }
