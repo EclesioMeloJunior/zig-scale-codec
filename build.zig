@@ -69,9 +69,8 @@ pub fn build(b: *std.Build) void {
 
 fn addModules(b: *std.Build, sc: *std.Build.Step.Compile) void {
     const zig_bench = b.createModule(.{
-        .source_file = .{ .path = b.pathFromRoot("vendor/zig-bench/bench.zig") },
-        .dependencies = &[_]std.build.ModuleDependency{},
+        .root_source_file = .{ .path = b.pathFromRoot("vendor/zig-bench/bench.zig") },
     });
 
-    sc.addModule("bench", zig_bench);
+    sc.root_module.addImport("bench", zig_bench);
 }

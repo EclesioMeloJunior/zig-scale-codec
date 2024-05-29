@@ -46,7 +46,7 @@ fn compact_unsigned(comptime T: type, value: T, enc_bytes_ref: *std.ArrayList(u8
         else => {
             var cpy_value = value;
             const alpha = if (T == u64) 8 else if (T == u128) 16 else @panic("alpha should be only 8 for u64 or 16 for u128");
-            var bytes_needed = alpha - @clz(cpy_value) / 8;
+            const bytes_needed = alpha - @clz(cpy_value) / 8;
 
             if (bytes_needed < 4) {
                 @panic("previous match arm matches anyting less than 2^30; qed");

@@ -21,21 +21,23 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
     switch (@typeInfo(T)) {
         .Int => try encode_integer(T, to_encode, enc),
         .Bool => try encode_boolean(to_encode, enc),
-        .Struct => try encode_struct(T, to_encode, enc),
+        .Struct => {
+            if (std.meta.hasMethod(T, "encode")) {
+                return to_encode.encode(enc);
+            }
+            try encode_struct(T, to_encode, enc);
+        },
         .Optional => try encode_optional(T, to_encode, enc),
-        else => @compileError("encoding only supports structs"),
+        else => switch (T) {
+            []const u8 => try encode_const_byte_slice(to_encode, enc),
+            else => @panic("unsuported type" ++ T),
+        },
     }
 }
 
 pub fn encode_struct(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
     inline for (meta.fields(T)) |field| {
-        switch (field.type) {
-            []const u8 => {
-                const str_value: []const u8 = @field(to_encode, field.name);
-                try encode_const_byte_slice(str_value, enc);
-            },
-            else => try Encode(field.type, @field(to_encode, field.name), enc),
-        }
+        try Encode(field.type, @field(to_encode, field.name), enc);
     }
 }
 
@@ -122,7 +124,7 @@ test "encode a basic struct" {
     const Animal = struct { name: []const u8, age: u64 };
     const size_hint = SizeHint(Animal);
 
-    var cow: Animal = .{ .name = "some_name", .age = 10 };
+    const cow: Animal = .{ .name = "some_name", .age = 10 };
 
     var encoded_bytes = try std.ArrayList(u8).initCapacity(
         testing.allocator,
@@ -132,7 +134,7 @@ test "encode a basic struct" {
 
     try Encode(Animal, cow, &encoded_bytes);
 
-    var exp = &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0 };
+    const exp = &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0 };
     try testing.expect(std.mem.eql(u8, exp, encoded_bytes.items));
 }
 
@@ -173,6 +175,24 @@ test "encode a basic struct with optional type" {
     try testing.expect(std.mem.eql(
         u8,
         &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0, 0 },
+        encoded_bytes.items,
+    ));
+}
+
+test "encode compact" {
+    const cmp_size_hint = SizeHint(compact.CompactUint64);
+    var encoded_bytes = try std.ArrayList(u8).initCapacity(
+        testing.allocator,
+        cmp_size_hint,
+    );
+    defer encoded_bytes.deinit();
+
+    const cmp_uint64: compact.CompactUint64 = .{ .value = 10 };
+    try Encode(compact.CompactUint64, cmp_uint64, &encoded_bytes);
+
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{40},
         encoded_bytes.items,
     ));
 }

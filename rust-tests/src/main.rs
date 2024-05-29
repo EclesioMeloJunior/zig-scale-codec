@@ -25,7 +25,7 @@ mod test {
 
     #[test]
     fn encoding_compact_u8() {
-        let compact: Compact<u64> = Compact(u64::MAX);
+        let compact: Compact<u64> = Compact(10);
         println!("{:?}", compact.encode());
     }
 
