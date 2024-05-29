@@ -5,6 +5,8 @@ const testing = std.testing;
 const binary = @import("./binary.zig");
 const compact = @import("./compact.zig");
 
+const Error = error{EncodingOptional} || std.mem.Allocator.Error;
+
 pub fn SizeHint(comptime T: type) usize {
     var size_hint: usize = 0;
 
@@ -20,6 +22,7 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
         .Int => try encode_integer(T, to_encode, enc),
         .Bool => try encode_boolean(to_encode, enc),
         .Struct => try encode_struct(T, to_encode, enc),
+        .Optional => try encode_optional(T, to_encode, enc),
         else => @compileError("encoding only supports structs"),
     }
 }
@@ -31,24 +34,7 @@ pub fn encode_struct(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !v
                 const str_value: []const u8 = @field(to_encode, field.name);
                 try encode_const_byte_slice(str_value, enc);
             },
-            usize, u8, u16, u32, u64, u128, isize, i8, i16, i32, i64, i128 => {
-                const integer: field.type = @field(to_encode, field.name);
-                try encode_integer(field.type, integer, enc);
-            },
-            else => {
-                switch (@typeInfo(field.type)) {
-                    .Optional => {
-                        const opt: field.type = @field(to_encode, field.name);
-                        if (opt) |inner_value| {
-                            try enc.append(0x01);
-                            try Encode(@TypeOf(inner_value), inner_value, enc);
-                        } else {
-                            try enc.append(0x00);
-                        }
-                    },
-                    else => @compileError("struct inner type not supported"),
-                }
-            },
+            else => try Encode(field.type, @field(to_encode, field.name), enc),
         }
     }
 }
@@ -67,6 +53,15 @@ pub fn encode_integer(comptime T: type, value: T, enc: *std.ArrayList(u8)) !void
 
 pub fn encode_boolean(value: bool, enc: *std.ArrayList(u8)) !void {
     if (value) try enc.append(0x01) else try enc.append(0x00);
+}
+
+pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!void {
+    if (opt) |inner_value| {
+        try enc.append(0x01);
+        Encode(@TypeOf(inner_value), inner_value, enc) catch return error.EncodingOptional;
+    } else {
+        try enc.append(0x00);
+    }
 }
 
 test "encode_bool" {
@@ -152,7 +147,9 @@ test "encode a basic struct with optional type" {
     defer encoded_bytes.deinit();
 
     var str: Str = .{ .str = "some_name", .num = 10, .opt = true };
+
     try Encode(Str, str, &encoded_bytes);
+
     try testing.expect(std.mem.eql(
         u8,
         &[_]u8{ 36, 115, 111, 109, 101, 95, 110, 97, 109, 101, 10, 0, 0, 0, 0, 0, 0, 0, 1, 1 },
