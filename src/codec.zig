@@ -7,14 +7,33 @@ const compact = @import("./compact.zig");
 
 const Error = error{EncodingOptional} || std.mem.Allocator.Error;
 
-pub fn SizeHint(comptime T: type) usize {
-    var size_hint: usize = 0;
+pub fn SizeHint(comptime T: type, value: T) usize {
+    switch (@typeInfo(T)) {
+        .Int => return @as(usize, @sizeOf(T)),
+        .Bool => return @as(usize, 1),
+        .Struct => {
+            if (std.meta.hasMethod(T, "size_hint")) {
+                return value.size_hint();
+            }
 
-    inline for (meta.fields(T)) |field| {
-        size_hint += @sizeOf(field.type);
+            var size: usize = 0;
+            inline for (meta.fields(T)) |prop| {
+                size += SizeHint(prop.type, @field(value, prop.name));
+            }
+
+            return size;
+        },
+        .Optional => {
+            if (value) |inner| {
+                return 1 + SizeHint(@TypeOf(inner), inner);
+            }
+            return @as(usize, 1);
+        },
+        else => switch (T) {
+            []const u8 => return value.len,
+            else => @panic("unsuported type" ++ T),
+        },
     }
-
-    return size_hint;
 }
 
 pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
@@ -36,8 +55,8 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
 }
 
 pub fn encode_struct(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
-    inline for (meta.fields(T)) |field| {
-        try Encode(field.type, @field(to_encode, field.name), enc);
+    inline for (meta.fields(T)) |prop| {
+        try Encode(prop.type, @field(to_encode, prop.name), enc);
     }
 }
 
@@ -64,6 +83,18 @@ pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!
     } else {
         try enc.append(0x00);
     }
+}
+
+test "size hint" {
+    try testing.expect(SizeHint(bool, true) == 1);
+    try testing.expect(SizeHint(bool, false) == 1);
+    try testing.expect(SizeHint(?bool, null) == 1);
+    try testing.expect(SizeHint(?bool, true) == 2);
+
+    const Struct = struct { name: []const u8, age: u64 };
+    const str: Struct = .{ .name = "abc", .age = 10 };
+
+    try testing.expect(SizeHint(Struct, str) == 11);
 }
 
 test "encode_bool" {
@@ -122,9 +153,8 @@ test "encode_integer" {
 
 test "encode a basic struct" {
     const Animal = struct { name: []const u8, age: u64 };
-    const size_hint = SizeHint(Animal);
-
     const cow: Animal = .{ .name = "some_name", .age = 10 };
+    const size_hint = SizeHint(Animal, cow);
 
     var encoded_bytes = try std.ArrayList(u8).initCapacity(
         testing.allocator,
@@ -140,15 +170,14 @@ test "encode a basic struct" {
 
 test "encode a basic struct with optional type" {
     const Str = struct { str: []const u8, num: u64, opt: ?bool };
-    const str_size_hint = SizeHint(Str);
+    var str: Str = .{ .str = "some_name", .num = 10, .opt = true };
+    const str_size_hint = SizeHint(Str, str);
 
     var encoded_bytes = try std.ArrayList(u8).initCapacity(
         testing.allocator,
         str_size_hint,
     );
     defer encoded_bytes.deinit();
-
-    var str: Str = .{ .str = "some_name", .num = 10, .opt = true };
 
     try Encode(Str, str, &encoded_bytes);
 
@@ -180,14 +209,14 @@ test "encode a basic struct with optional type" {
 }
 
 test "encode compact" {
-    const cmp_size_hint = SizeHint(compact.CompactUint64);
+    const cmp_uint64: compact.CompactUint64 = .{ .value = 10 };
+    const cmp_size_hint = SizeHint(compact.CompactUint64, cmp_uint64);
     var encoded_bytes = try std.ArrayList(u8).initCapacity(
         testing.allocator,
         cmp_size_hint,
     );
     defer encoded_bytes.deinit();
 
-    const cmp_uint64: compact.CompactUint64 = .{ .value = 10 };
     try Encode(compact.CompactUint64, cmp_uint64, &encoded_bytes);
 
     try testing.expect(std.mem.eql(
