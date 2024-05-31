@@ -81,13 +81,19 @@ mod test {
     }
 
     #[test]
-    fn encode_vectors() {
+    fn encode_vectors_and_slices() {
         let v1 = vec![Some(1), Some(2), Some(10000)];
         println!("{:?}", v1.encode());
         println!("{:?}", v1.size_hint());
 
-        // let v2: Vec<u8> = vec![];
-        // println!("{:?}", v2.encode());
-        // println!("{:?}", v2.size_hint());
+        let v2: &[Result<String, u64>] = &vec![
+            Ok(String::from("ok!")),
+            Err(100),
+            Ok(String::from("this is an ok")),
+            Err(u64::MAX),
+        ];
+
+        println!("{:?}", v2.size_hint());
+        println!("{:?}", v2.encode());
     }
 }

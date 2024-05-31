@@ -37,11 +37,24 @@ pub fn SizeHint(comptime T: type, value: T) usize {
         .Array => {
             return @sizeOf(u32) + @sizeOf(T);
         },
+        .Pointer => |ptr| {
+            switch (ptr.size) {
+                .Many, .Slice => {
+                    return @sizeOf(u32) + (@sizeOf(ptr.child) * value.len);
+                },
+                else => @panic("unsupported ptr"),
+            }
+        },
         else => @panic("unsupported type"),
     }
 }
 
 pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
+    if (T == []const u8) {
+        try encode_const_byte_slice(to_encode, enc);
+        return;
+    }
+
     switch (@typeInfo(T)) {
         .Int => try encode_integer(T, to_encode, enc),
         .Bool => try encode_boolean(to_encode, enc),
@@ -52,11 +65,16 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
             try encode_struct(T, to_encode, enc);
         },
         .Optional => try encode_optional(T, to_encode, enc),
-        .Array => try encode_array(T, to_encode, enc),
-        else => switch (T) {
-            []const u8 => try encode_const_byte_slice(to_encode, enc),
-            else => @panic("unsuported type" ++ T),
+        .Array => |arr| {
+            try encode_set_of_items(arr.child, @as([]arr.child, @constCast(&to_encode)), enc);
         },
+        .Pointer => |ptr| {
+            switch (ptr.size) {
+                .Many, .Slice => try encode_set_of_items(ptr.child, @as([]ptr.child, to_encode), enc),
+                else => @panic("unsuported size" ++ ptr.size),
+            }
+        },
+        else => @panic("unsuported type" ++ T),
     }
 }
 
@@ -91,21 +109,24 @@ pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!
     }
 }
 
-pub fn encode_array(comptime T: type, arr: T, enc: *std.ArrayList(u8)) Error!void {
-    if (arr.len > std.math.maxInt(u32)) {
+pub fn compact_encode_len(len: usize, enc: *std.ArrayList(u8)) Error!void {
+    if (len > std.math.maxInt(u32)) {
         return error.TooManyElementsInColletion;
     }
 
-    const prefixed_len = compact.CompactUsize{ .value = arr.len };
+    const prefixed_len = compact.CompactUsize{ .value = len };
     try prefixed_len.encode(enc);
+}
+
+pub fn encode_set_of_items(comptime T: type, arr: []T, enc: *std.ArrayList(u8)) Error!void {
+    try compact_encode_len(arr.len, enc);
 
     if (arr.len == 0) {
         return;
     }
 
-    const item_ty = @TypeOf(arr[0]);
     for (arr) |item| {
-        try Encode(item_ty, item, enc);
+        try Encode(T, item, enc);
     }
 }
 
@@ -348,6 +369,28 @@ test "encoding fixed size arrays" {
     try testing.expect(std.mem.eql(
         u8,
         &[_]u8{ 12, 1, 1, 0, 0, 0, 1, 2, 0, 0, 0, 1, 16, 39, 0, 0 },
+        encoded_out.items,
+    ));
+}
+
+test "encoding a slice" {
+    var arr = [_]Result([]const u8, u64){
+        .{ .Ok = "ok!" },
+        .{ .Err = 100 },
+        .{ .Ok = "this is an ok" },
+        .{ .Err = std.math.maxInt(u64) },
+    };
+
+    const slice: []Result([]const u8, u64) = arr[0..];
+
+    const hint = SizeHint([]Result([]const u8, u64), slice);
+    var encoded_out = try std.ArrayList(u8).initCapacity(testing.allocator, hint);
+    defer encoded_out.deinit();
+
+    try Encode([]Result([]const u8, u64), slice, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 16, 0, 12, 111, 107, 33, 1, 100, 0, 0, 0, 0, 0, 0, 0, 0, 52, 116, 104, 105, 115, 32, 105, 115, 32, 97, 110, 32, 111, 107, 1, 255, 255, 255, 255, 255, 255, 255, 255 },
         encoded_out.items,
     ));
 }
