@@ -25,8 +25,9 @@ mod test {
 
     #[test]
     fn encoding_compact_u8() {
-        let compact: Compact<u64> = Compact(10);
+        let compact: Compact<u128> = Compact(u128::MAX);
         println!("{:?}", compact.encode());
+        println!("{:?}", compact.size_hint());
     }
 
     #[test]
@@ -57,5 +58,31 @@ mod test {
         for v in vars {
             println!("{:?}", v.encode());
         }
+    }
+
+    #[test]
+    fn encoding_result_type() {
+        let a: Result<String, String> = Ok(String::from("eclesio"));
+        println!("{:?}", a.encode());
+
+        #[derive(Encode)]
+        struct StrWithResult {
+            result: Result<u64, String>,
+            cmp: Compact<u64>,
+        }
+
+        let my_ok: StrWithResult = StrWithResult {
+            result: Ok(100),
+            cmp: Compact(u16::MAX as u64),
+        };
+
+        println!("{:?}", my_ok.encode());
+
+        let my_ok: StrWithResult = StrWithResult {
+            result: Err(String::from("fail")),
+            cmp: Compact(u8::MAX as u64),
+        };
+
+        println!("{:?}", my_ok.encode());
     }
 }

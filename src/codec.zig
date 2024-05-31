@@ -11,7 +11,7 @@ pub fn SizeHint(comptime T: type, value: T) usize {
     switch (@typeInfo(T)) {
         .Int => return @as(usize, @sizeOf(T)),
         .Bool => return @as(usize, 1),
-        .Struct => {
+        .Struct, .Union => {
             if (std.meta.hasMethod(T, "size_hint")) {
                 return value.size_hint();
             }
@@ -31,7 +31,7 @@ pub fn SizeHint(comptime T: type, value: T) usize {
         },
         else => switch (T) {
             []const u8 => return value.len,
-            else => @panic("unsuported type" ++ T),
+            else => @panic("unsupported type"),
         },
     }
 }
@@ -40,7 +40,7 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
     switch (@typeInfo(T)) {
         .Int => try encode_integer(T, to_encode, enc),
         .Bool => try encode_boolean(to_encode, enc),
-        .Struct => {
+        .Struct, .Union => {
             if (std.meta.hasMethod(T, "encode")) {
                 return to_encode.encode(enc);
             }
@@ -85,11 +85,45 @@ pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!
     }
 }
 
+pub fn Result(comptime ok_t: type, comptime err_t: type) type {
+    return union(enum) {
+        Ok: ok_t,
+        Err: err_t,
+
+        pub const Self = @This();
+
+        pub fn size_hint(s: Self) usize {
+            switch (s) {
+                .Ok => |rest| return 1 + SizeHint(@TypeOf(rest), rest),
+                .Err => |rest| return 1 + SizeHint(@TypeOf(rest), rest),
+            }
+        }
+
+        pub fn encode(s: Self, enc: *std.ArrayList(u8)) !void {
+            switch (s) {
+                .Ok => |rest| {
+                    try enc.append(0x00);
+                    try Encode(@TypeOf(rest), rest, enc);
+                },
+                .Err => |rest| {
+                    try enc.append(0x01);
+                    try Encode(@TypeOf(rest), rest, enc);
+                },
+            }
+        }
+    };
+}
+
+pub const Ok = Result(void, void);
+
 test "size hint" {
     try testing.expect(SizeHint(bool, true) == 1);
     try testing.expect(SizeHint(bool, false) == 1);
     try testing.expect(SizeHint(?bool, null) == 1);
     try testing.expect(SizeHint(?bool, true) == 2);
+
+    const compactU128: compact.CompactUint128 = .{ .value = std.math.maxInt(u128) };
+    try testing.expect(SizeHint(compact.CompactUint128, compactU128) == 17);
 
     const Struct = struct { name: []const u8, age: u64 };
     const str: Struct = .{ .name = "abc", .age = 10 };
@@ -224,4 +258,59 @@ test "encode compact" {
         &[_]u8{40},
         encoded_bytes.items,
     ));
+}
+
+test "encoding a result type" {
+    const name_res: Result([]const u8, []const u8) = .{ .Ok = "eclesio" };
+    const name_res_hint = SizeHint(@TypeOf(name_res), name_res);
+    var encoded_bytes = try std.ArrayList(u8).initCapacity(
+        testing.allocator,
+        name_res_hint,
+    );
+    defer encoded_bytes.deinit();
+    try name_res.encode(&encoded_bytes);
+
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 0, 28, 101, 99, 108, 101, 115, 105, 111 },
+        encoded_bytes.items,
+    ));
+
+    const StrWithResult = struct {
+        result: Result(u64, []const u8),
+        cmp: compact.CompactUint64,
+    };
+
+    const test_cases = [_]struct {
+        case: StrWithResult,
+        expected: []const u8,
+    }{
+        .{
+            .case = .{
+                .result = .{ .Ok = 100 },
+                .cmp = .{ .value = @as(u64, std.math.maxInt(u16)) },
+            },
+            .expected = &[_]u8{ 0, 100, 0, 0, 0, 0, 0, 0, 0, 254, 255, 3, 0 },
+        },
+        .{
+            .case = .{
+                .result = .{ .Err = "fail" },
+                .cmp = .{ .value = @as(u64, std.math.maxInt(u8)) },
+            },
+            .expected = &[_]u8{ 1, 16, 102, 97, 105, 108, 253, 3 },
+        },
+    };
+
+    for (test_cases) |tt| {
+        const hint = SizeHint(StrWithResult, tt.case);
+        var encoded_out = try std.ArrayList(u8).initCapacity(testing.allocator, hint);
+        defer encoded_out.deinit();
+
+        try Encode(StrWithResult, tt.case, &encoded_out);
+        try testing.expect(std.mem.eql(
+            u8,
+            tt.expected,
+            encoded_out.items,
+        ));
+    }
 }
