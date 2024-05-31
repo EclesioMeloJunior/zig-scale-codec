@@ -24,8 +24,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    addModules(b, exe);
-
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
@@ -61,16 +59,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
 
     for (tests) |t| {
-        addModules(b, t);
         var artifact = b.addRunArtifact(t);
         test_step.dependOn(&artifact.step);
     }
-}
-
-fn addModules(b: *std.Build, sc: *std.Build.Step.Compile) void {
-    const zig_bench = b.createModule(.{
-        .root_source_file = .{ .path = b.pathFromRoot("vendor/zig-bench/bench.zig") },
-    });
-
-    sc.root_module.addImport("bench", zig_bench);
 }
