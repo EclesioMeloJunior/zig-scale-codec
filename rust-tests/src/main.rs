@@ -1,21 +1,8 @@
-use parity_scale_codec::{Decode, Encode};
-
-#[derive(Decode, Encode)]
-struct Str<N, O> {
-    str: String,
-    number: N,
-    opt: Option<O>,
-}
-
-fn main() {
-    println!("Hello, world!");
-}
+fn main() {}
 
 #[cfg(test)]
 mod test {
     use parity_scale_codec::{Compact, Encode};
-
-    use crate::Str;
 
     #[test]
     fn encode_optional_bool() {
@@ -24,7 +11,7 @@ mod test {
     }
 
     #[test]
-    fn encoding_compact_u8() {
+    fn encoding_compact() {
         let compact: Compact<u128> = Compact(u128::MAX);
         println!("{:?}", compact.encode());
         println!("{:?}", compact.size_hint());
@@ -37,6 +24,13 @@ mod test {
 
     #[test]
     fn encoding_struct() {
+        #[derive(Encode)]
+        struct Str<N, O> {
+            str: String,
+            number: N,
+            opt: Option<O>,
+        }
+
         let vars = vec![
             Str::<u64, bool> {
                 str: String::from("some_name"),
@@ -84,5 +78,16 @@ mod test {
         };
 
         println!("{:?}", my_ok.encode());
+    }
+
+    #[test]
+    fn encode_vectors() {
+        let v1 = vec![Some(1), Some(2), Some(10000)];
+        println!("{:?}", v1.encode());
+        println!("{:?}", v1.size_hint());
+
+        // let v2: Vec<u8> = vec![];
+        // println!("{:?}", v2.encode());
+        // println!("{:?}", v2.size_hint());
     }
 }

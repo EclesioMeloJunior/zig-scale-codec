@@ -21,6 +21,7 @@ zig build test
 - [x] Strings
 - [x] Structs
 - [x] Results
-- [ ] Vectors
+- [x] Fixed Size Arrays
+- [ ] Slices
 - [ ] Tuples
 - [ ] Enumerations (tagged-unions)

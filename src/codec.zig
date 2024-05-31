@@ -5,9 +5,16 @@ const testing = std.testing;
 const binary = @import("./binary.zig");
 const compact = @import("./compact.zig");
 
-const Error = error{EncodingOptional} || std.mem.Allocator.Error;
+const Error = error{
+    EncodingOptional,
+    TooManyElementsInColletion,
+} || std.mem.Allocator.Error;
 
 pub fn SizeHint(comptime T: type, value: T) usize {
+    if (T == []const u8) {
+        return value.len;
+    }
+
     switch (@typeInfo(T)) {
         .Int => return @as(usize, @sizeOf(T)),
         .Bool => return @as(usize, 1),
@@ -15,12 +22,10 @@ pub fn SizeHint(comptime T: type, value: T) usize {
             if (std.meta.hasMethod(T, "size_hint")) {
                 return value.size_hint();
             }
-
             var size: usize = 0;
             inline for (meta.fields(T)) |prop| {
                 size += SizeHint(prop.type, @field(value, prop.name));
             }
-
             return size;
         },
         .Optional => {
@@ -29,10 +34,10 @@ pub fn SizeHint(comptime T: type, value: T) usize {
             }
             return @as(usize, 1);
         },
-        else => switch (T) {
-            []const u8 => return value.len,
-            else => @panic("unsupported type"),
+        .Array => {
+            return @sizeOf(u32) + @sizeOf(T);
         },
+        else => @panic("unsupported type"),
     }
 }
 
@@ -47,6 +52,7 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
             try encode_struct(T, to_encode, enc);
         },
         .Optional => try encode_optional(T, to_encode, enc),
+        .Array => try encode_array(T, to_encode, enc),
         else => switch (T) {
             []const u8 => try encode_const_byte_slice(to_encode, enc),
             else => @panic("unsuported type" ++ T),
@@ -85,6 +91,24 @@ pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!
     }
 }
 
+pub fn encode_array(comptime T: type, arr: T, enc: *std.ArrayList(u8)) Error!void {
+    if (arr.len > std.math.maxInt(u32)) {
+        return error.TooManyElementsInColletion;
+    }
+
+    const prefixed_len = compact.CompactUsize{ .value = arr.len };
+    try prefixed_len.encode(enc);
+
+    if (arr.len == 0) {
+        return;
+    }
+
+    const item_ty = @TypeOf(arr[0]);
+    for (arr) |item| {
+        try Encode(item_ty, item, enc);
+    }
+}
+
 pub fn Result(comptime ok_t: type, comptime err_t: type) type {
     return union(enum) {
         Ok: ok_t,
@@ -113,8 +137,6 @@ pub fn Result(comptime ok_t: type, comptime err_t: type) type {
         }
     };
 }
-
-pub const Ok = Result(void, void);
 
 test "size hint" {
     try testing.expect(SizeHint(bool, true) == 1);
@@ -313,4 +335,19 @@ test "encoding a result type" {
             encoded_out.items,
         ));
     }
+}
+
+test "encoding fixed size arrays" {
+    const vec = [_]?i32{ 1, 2, 10000 };
+    const vec_hint = SizeHint(@TypeOf(vec), vec);
+
+    var encoded_out = try std.ArrayList(u8).initCapacity(testing.allocator, vec_hint);
+    defer encoded_out.deinit();
+
+    try Encode([3]?i32, vec, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 12, 1, 1, 0, 0, 0, 1, 2, 0, 0, 0, 1, 16, 39, 0, 0 },
+        encoded_out.items,
+    ));
 }
