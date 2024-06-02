@@ -96,4 +96,13 @@ mod test {
         println!("{:?}", v2.size_hint());
         println!("{:?}", v2.encode());
     }
+
+    #[test]
+    fn encoding_tuple() {
+        let tuple: (u32, u64, bool, Result<String, String>) =
+            (9090 as u32, 9090 as u64, true, Ok(String::from("ok!")));
+
+        println!("{:?}", tuple.size_hint());
+        println!("{:?}", tuple.encode());
+    }
 }

@@ -394,3 +394,25 @@ test "encoding a slice" {
         encoded_out.items,
     ));
 }
+
+test "encoding tuples" {
+    const tuple = .{
+        @as(u32, 9090),
+        @as(u64, 9090),
+        true,
+        @as(Result([]const u8, []const u8), .{ .Ok = "ok!" }),
+    };
+
+    const hint = SizeHint(@TypeOf(tuple), tuple);
+
+    var encoded_out = try std.ArrayList(u8).initCapacity(testing.allocator, hint);
+    defer encoded_out.deinit();
+
+    try Encode(@TypeOf(tuple), tuple, &encoded_out);
+
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 130, 35, 0, 0, 130, 35, 0, 0, 0, 0, 0, 0, 1, 0, 12, 111, 107, 33 },
+        encoded_out.items,
+    ));
+}

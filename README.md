@@ -23,5 +23,5 @@ zig build test
 - [x] Results
 - [x] Fixed Size Arrays
 - [x] Slices
-- [ ] Tuples
+- [x] Tuples
 - [ ] Enumerations (tagged-unions)
