@@ -18,10 +18,27 @@ pub fn SizeHint(comptime T: type, value: T) usize {
     switch (@typeInfo(T)) {
         .Int => return @as(usize, @sizeOf(T)),
         .Bool => return @as(usize, 1),
-        .Struct, .Union => {
+        .Union => {
+            // handle Result type or any other custom type that
+            // has its own size_hint method
             if (std.meta.hasMethod(T, "size_hint")) {
                 return value.size_hint();
             }
+
+            const active_tag = @tagName(value);
+            inline for (meta.fields(T)) |prop| {
+                if (std.mem.eql(u8, active_tag, prop.name)) {
+                    return 1 + SizeHint(prop.type, @field(value, prop.name));
+                }
+            }
+
+            unreachable;
+        },
+        .Struct => {
+            if (std.meta.hasMethod(T, "size_hint")) {
+                return value.size_hint();
+            }
+
             var size: usize = 0;
             inline for (meta.fields(T)) |prop| {
                 size += SizeHint(prop.type, @field(value, prop.name));
@@ -45,6 +62,7 @@ pub fn SizeHint(comptime T: type, value: T) usize {
                 else => @panic("unsupported ptr"),
             }
         },
+        .Enum => |enum_field| return @sizeOf(enum_field.tag_type),
         else => @panic("unsupported type"),
     }
 }
@@ -58,7 +76,24 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
     switch (@typeInfo(T)) {
         .Int => try encode_integer(T, to_encode, enc),
         .Bool => try encode_boolean(to_encode, enc),
-        .Struct, .Union => {
+        .Union => {
+            // handle Result type or any other custom type that
+            // has its own size_hint method
+            if (std.meta.hasMethod(T, "encode")) {
+                return to_encode.encode(enc);
+            }
+
+            try enc.append(@intFromEnum(to_encode));
+            const active_tag = @tagName(to_encode);
+            inline for (meta.fields(T)) |prop| {
+                if (std.mem.eql(u8, active_tag, prop.name)) {
+                    return Encode(prop.type, @field(to_encode, prop.name), enc);
+                }
+            }
+
+            unreachable;
+        },
+        .Struct => {
             if (std.meta.hasMethod(T, "encode")) {
                 return to_encode.encode(enc);
             }
@@ -73,6 +108,10 @@ pub fn Encode(comptime T: type, to_encode: T, enc: *std.ArrayList(u8)) !void {
                 .Many, .Slice => try encode_set_of_items(ptr.child, @as([]ptr.child, to_encode), enc),
                 else => @panic("unsuported size" ++ ptr.size),
             }
+        },
+        .Enum => |enum_field| switch (enum_field.tag_type) {
+            u1 => try enc.append(@intFromEnum(to_encode)),
+            else => @panic("unsuported enum tag type" ++ enum_field.tag_type),
         },
         else => @panic("unsuported type" ++ T),
     }
@@ -413,6 +452,58 @@ test "encoding tuples" {
     try testing.expect(std.mem.eql(
         u8,
         &[_]u8{ 130, 35, 0, 0, 130, 35, 0, 0, 0, 0, 0, 0, 1, 0, 12, 111, 107, 33 },
+        encoded_out.items,
+    ));
+}
+
+test "encode enum" {
+    // enums will always have size 1
+    const SimpleEnum = enum { Var1, Var2 };
+
+    try testing.expect(SizeHint(SimpleEnum, .Var1) == 1);
+
+    var encoded_out = try std.ArrayList(u8).initCapacity(testing.allocator, 1);
+    defer encoded_out.deinit();
+
+    try Encode(SimpleEnum, .Var1, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{0},
+        encoded_out.items,
+    ));
+
+    encoded_out.clearRetainingCapacity();
+    try Encode(SimpleEnum, .Var2, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{1},
+        encoded_out.items,
+    ));
+}
+
+test "encoding union type" {
+    const ComplexEnum = union(enum) {
+        Var1: Result([]const u8, []const u8),
+        Var2: ?Result([]const u8, []const u8),
+        Var3: struct {
+            a: bool,
+            b: compact.CompactUint64,
+            c: compact.CompactUint32,
+        },
+    };
+
+    const var1 = ComplexEnum{
+        .Var1 = @as(Result([]const u8, []const u8), .{ .Ok = "this is an ok" }),
+    };
+    const hint = SizeHint(ComplexEnum, var1);
+
+    var encoded_out = try std.ArrayList(u8).initCapacity(testing.allocator, hint);
+    defer encoded_out.deinit();
+
+    try Encode(ComplexEnum, var1, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 0, 0, 52, 116, 104, 105, 115, 32, 105, 115, 32, 97, 110, 32, 111, 107 },
         encoded_out.items,
     ));
 }

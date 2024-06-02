@@ -105,4 +105,34 @@ mod test {
         println!("{:?}", tuple.size_hint());
         println!("{:?}", tuple.encode());
     }
+
+    #[test]
+    fn encode_enums() {
+        #[derive(Encode)]
+        enum SimpleEnum {
+            Var1,
+            Var2,
+        }
+
+        println!("{:?}", SimpleEnum::Var1.size_hint());
+        println!("{:?}", SimpleEnum::Var1.encode());
+
+        println!("{:?}", SimpleEnum::Var2.size_hint());
+        println!("{:?}", SimpleEnum::Var2.encode());
+
+        #[derive(Encode)]
+        enum ComplexEnum {
+            Var1(Result<String, String>),
+            Var2(Option<Result<String, String>>),
+            Var3 {
+                a: bool,
+                b: Compact<u64>,
+                c: Compact<u32>,
+            },
+        }
+
+        let var1 = ComplexEnum::Var1(Ok(String::from("this is an ok")));
+        println!("{:?}", var1.size_hint());
+        println!("{:?}", var1.encode());
+    }
 }
