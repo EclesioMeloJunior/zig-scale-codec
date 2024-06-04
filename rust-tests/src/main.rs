@@ -135,13 +135,13 @@ mod test {
         println!("{:?}", var1.size_hint());
         println!("{:?}", var1.encode());
 
-        let var2_Null: ComplexEnum = ComplexEnum::Var2(None);
-        println!("{:?}", var2_Null.size_hint());
-        println!("{:?}", var2_Null.encode());
+        let var2_null: ComplexEnum = ComplexEnum::Var2(None);
+        println!("{:?}", var2_null.size_hint());
+        println!("{:?}", var2_null.encode());
 
-        let var2_Some = ComplexEnum::Var2(Some(Err(String::from("an error"))));
-        println!("{:?}", var2_Some.size_hint());
-        println!("{:?}", var2_Some.encode());
+        let var2_some = ComplexEnum::Var2(Some(Err(String::from("an error"))));
+        println!("{:?}", var2_some.size_hint());
+        println!("{:?}", var2_some.encode());
 
         let var3 = ComplexEnum::Var3 {
             a: true,
