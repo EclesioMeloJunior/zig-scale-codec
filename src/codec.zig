@@ -506,4 +506,41 @@ test "encoding union type" {
         &[_]u8{ 0, 0, 52, 116, 104, 105, 115, 32, 105, 115, 32, 97, 110, 32, 111, 107 },
         encoded_out.items,
     ));
+
+    encoded_out.clearRetainingCapacity();
+
+    const var2Null = ComplexEnum{ .Var2 = null };
+    try Encode(ComplexEnum, var2Null, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 1, 0 },
+        encoded_out.items,
+    ));
+
+    encoded_out.clearRetainingCapacity();
+
+    const var2Some = ComplexEnum{ .Var2 = .{ .Err = "an error" } };
+    try Encode(ComplexEnum, var2Some, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 1, 1, 1, 32, 97, 110, 32, 101, 114, 114, 111, 114 },
+        encoded_out.items,
+    ));
+
+    encoded_out.clearRetainingCapacity();
+
+    const var3 = ComplexEnum{
+        .Var3 = .{
+            .a = true,
+            .b = .{ .value = 0 },
+            .c = .{ .value = 1 },
+        },
+    };
+
+    try Encode(ComplexEnum, var3, &encoded_out);
+    try testing.expect(std.mem.eql(
+        u8,
+        &[_]u8{ 2, 1, 0, 4 },
+        encoded_out.items,
+    ));
 }

@@ -134,5 +134,21 @@ mod test {
         let var1 = ComplexEnum::Var1(Ok(String::from("this is an ok")));
         println!("{:?}", var1.size_hint());
         println!("{:?}", var1.encode());
+
+        let var2_Null: ComplexEnum = ComplexEnum::Var2(None);
+        println!("{:?}", var2_Null.size_hint());
+        println!("{:?}", var2_Null.encode());
+
+        let var2_Some = ComplexEnum::Var2(Some(Err(String::from("an error"))));
+        println!("{:?}", var2_Some.size_hint());
+        println!("{:?}", var2_Some.encode());
+
+        let var3 = ComplexEnum::Var3 {
+            a: true,
+            b: Compact(0),
+            c: Compact(1),
+        };
+        println!("{:?}", var3.size_hint());
+        println!("{:?}", var3.encode());
     }
 }
