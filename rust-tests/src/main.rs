@@ -5,6 +5,12 @@ mod test {
     use parity_scale_codec::{Compact, Encode};
 
     #[test]
+    fn encode_bool() {
+        let bool = true;
+        println!("{:?}", bool.encode())
+    }
+
+    #[test]
     fn encode_optional_bool() {
         let opt_bool: Option<bool> = Some(true);
         println!("{:?}", opt_bool.encode())

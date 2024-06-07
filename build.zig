@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
         b.addTest(.{
-            .root_source_file = .{ .path = "src/binary.zig" },
+            .root_source_file = .{ .path = "src/iterator.zig" },
             .target = target,
             .optimize = optimize,
         }),

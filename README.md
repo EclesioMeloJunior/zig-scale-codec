@@ -20,7 +20,7 @@ Currently support the encode og the following types
 | ----------------------------------------------------------------- | ------ | ------ |
 | Fixed Integers (i8, i16, i32, i64, i128, u8, u16, u32, u64, u128) | ✅     | ❌     |
 | Compact Integers                                                  | ✅     | ❌     |
-| Boolean                                                           | ✅     | ❌     |
+| Boolean                                                           | ✅     | ✅     |
 | Options                                                           | ✅     | ❌     |
 | Strings                                                           | ✅     | ❌     |
 | Structs                                                           | ✅     | ❌     |

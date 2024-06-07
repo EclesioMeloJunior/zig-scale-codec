@@ -2,10 +2,14 @@ const std = @import("std");
 const meta = std.meta;
 const testing = std.testing;
 
-const binary = @import("./binary.zig");
-const compact = @import("./compact.zig");
+const binary = @import("binary.zig");
+const compact = @import("compact.zig");
+const iterator = @import("iterator.zig");
 
-const Error = error{
+const Errors = error{
+    UnexpectedByte,
+    TypeNotSupported,
+    UnexpectedEnd,
     EncodingOptional,
     TooManyElementsInColletion,
 } || std.mem.Allocator.Error;
@@ -139,7 +143,7 @@ pub fn encode_boolean(value: bool, enc: *std.ArrayList(u8)) !void {
     if (value) try enc.append(0x01) else try enc.append(0x00);
 }
 
-pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!void {
+pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Errors!void {
     if (opt) |inner_value| {
         try enc.append(0x01);
         Encode(@TypeOf(inner_value), inner_value, enc) catch return error.EncodingOptional;
@@ -148,7 +152,7 @@ pub fn encode_optional(comptime T: type, opt: T, enc: *std.ArrayList(u8)) Error!
     }
 }
 
-pub fn compact_encode_len(len: usize, enc: *std.ArrayList(u8)) Error!void {
+pub fn compact_encode_len(len: usize, enc: *std.ArrayList(u8)) Errors!void {
     if (len > std.math.maxInt(u32)) {
         return error.TooManyElementsInColletion;
     }
@@ -157,7 +161,7 @@ pub fn compact_encode_len(len: usize, enc: *std.ArrayList(u8)) Error!void {
     try prefixed_len.encode(enc);
 }
 
-pub fn encode_set_of_items(comptime T: type, arr: []T, enc: *std.ArrayList(u8)) Error!void {
+pub fn encode_set_of_items(comptime T: type, arr: []T, enc: *std.ArrayList(u8)) Errors!void {
     try compact_encode_len(arr.len, enc);
 
     if (arr.len == 0) {
@@ -196,6 +200,43 @@ pub fn Result(comptime ok_t: type, comptime err_t: type) type {
             }
         }
     };
+}
+
+pub fn Decode(comptime T: type, iter: *iterator.Iterator(u8)) Errors!T {
+    switch (T) {
+        bool => {
+            if (iter.next()) |byte| {
+                return switch (byte) {
+                    0x01 => true,
+                    0x00 => false,
+                    else => Errors.UnexpectedByte,
+                };
+            }
+            return Errors.UnexpectedEnd;
+        },
+        else => return Errors.TypeNotSupported,
+    }
+}
+
+test "decode bool" {
+    const TestCase = struct { encoded: []const u8, expected: bool };
+
+    const cases = [_]TestCase{
+        .{
+            .encoded = &[_]u8{1},
+            .expected = true,
+        },
+        .{
+            .encoded = &[_]u8{0},
+            .expected = false,
+        },
+    };
+
+    for (cases) |tt| {
+        var iter = iterator.Iterator(u8).new(tt.encoded);
+        const out = try Decode(bool, &iter);
+        try testing.expect(out == tt.expected);
+    }
 }
 
 test "size hint" {
