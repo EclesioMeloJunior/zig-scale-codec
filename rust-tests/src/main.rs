@@ -2,7 +2,7 @@ fn main() {}
 
 #[cfg(test)]
 mod test {
-    use parity_scale_codec::{Compact, Encode};
+    use parity_scale_codec::{Compact, Decode, Encode};
 
     #[test]
     fn encode_bool() {
@@ -18,9 +18,11 @@ mod test {
 
     #[test]
     fn encoding_compact() {
-        let compact: Compact<u128> = Compact(u128::MAX);
+        let compact: Compact<u128> = Compact((u32::MAX as u128) + 1);
         println!("{:?}", compact.encode());
-        println!("{:?}", compact.size_hint());
+        println!("{:?}", compact.encode().len());
+
+        let mut encoded = compact.encode();
     }
 
     #[test]

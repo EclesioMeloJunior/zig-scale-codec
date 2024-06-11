@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Errors = error{
+pub const Errors = error{
     IteratorExhausted,
 };
 

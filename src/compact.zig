@@ -1,6 +1,11 @@
 const std = @import("std");
 const testing = std.testing;
-const binary = @import("./binary.zig");
+const binary = @import("binary.zig");
+const iterator = @import("iterator.zig");
+
+pub const Errors = error{
+    UnexpectedExhaustedIterator,
+} || iterator.Errors || std.mem.Allocator.Error;
 
 fn Compact(comptime T: type) type {
     return struct {
@@ -81,6 +86,83 @@ pub const CompactUint16 = Compact(u16);
 pub const CompactUint32 = Compact(u32);
 pub const CompactUint64 = Compact(u64);
 pub const CompactUint128 = Compact(u128);
+
+fn compactMode(byte: u8) enum { singleByteMode, twoByteMode, fourByteMode, bigIntegerMode } {
+    switch (byte << 6) {
+        0b00000000 => return .singleByteMode,
+        0b01000000 => return .twoByteMode,
+        0b10000000 => return .fourByteMode,
+        0b11000000 => return .bigIntegerMode,
+        else => @panic("encoded compact mode not supported"),
+    }
+}
+
+pub fn Decode(comptime T: type, iter: *iterator.Iterator(u8)) Errors!Compact(T) {
+    const fst = iter.next() orelse return Errors.UnexpectedExhaustedIterator;
+    switch (compactMode(fst)) {
+        .singleByteMode => return .{ .value = @as(T, fst >> 2) },
+        .twoByteMode => {
+            const snd = iter.next() orelse return Errors.UnexpectedExhaustedIterator;
+            const buf = [_]u8{
+                (fst >> 2) | (snd << 6),
+                snd >> 2,
+            };
+            return .{ .value = @as(T, std.mem.readInt(u16, &buf, .little)) };
+        },
+        .fourByteMode => {
+            var next_bytes: [3]u8 = undefined;
+            const n = try iter.take(&next_bytes);
+            if (n != 3) return Errors.UnexpectedExhaustedIterator;
+            const buf = [_]u8{
+                (fst >> 2) | (next_bytes[0] << 6),
+                (next_bytes[0] >> 2) | (next_bytes[1] << 6),
+                (next_bytes[1] >> 2) | (next_bytes[2] << 6),
+                next_bytes[2] >> 2,
+            };
+            return .{ .value = @as(T, std.mem.readInt(u32, &buf, .little)) };
+        },
+        .bigIntegerMode => {
+            const amount_next_bytes = (fst >> 2) + 4;
+            if (amount_next_bytes == 4) {
+                var next_bytes: [4]u8 = undefined;
+                const n = try iter.take(&next_bytes);
+                if (n != 4) return Errors.UnexpectedExhaustedIterator;
+                return .{ .value = @as(T, std.mem.readInt(u32, @as(*const [4]u8, @alignCast(&next_bytes)), .little)) };
+            }
+
+            if (amount_next_bytes > 4 and amount_next_bytes < 8) {
+                const bytes = try read_bytes(amount_next_bytes, iter);
+                return .{ .value = @as(T, std.mem.readInt(u64, @as(*const [8]u8, @ptrCast(bytes.ptr)), .little)) };
+            }
+
+            if (amount_next_bytes == 8) {
+                var next_bytes: [8]u8 = undefined;
+                const n = try iter.take(&next_bytes);
+                if (n != 8) return Errors.UnexpectedExhaustedIterator;
+                return .{ .value = @as(T, std.mem.readInt(u64, @as(*const [8]u8, @alignCast(&next_bytes)), .little)) };
+            }
+
+            const bytes = try read_bytes(amount_next_bytes, iter);
+            return .{ .value = @as(T, std.mem.readInt(u128, @as(*const [16]u8, @ptrCast(bytes.ptr)), .little)) };
+        },
+    }
+}
+
+fn read_bytes(amount: usize, iter: *iterator.Iterator(u8)) Errors![]u8 {
+    var encoded_number = try std.ArrayList(u8).initCapacity(
+        std.heap.page_allocator,
+        amount,
+    );
+    defer encoded_number.deinit();
+
+    var idx: usize = 0;
+    while (idx < amount) : (idx += 1) {
+        const byte = iter.next() orelse return Errors.UnexpectedExhaustedIterator;
+        try encoded_number.append(byte);
+    }
+
+    return encoded_number.toOwnedSlice();
+}
 
 test "compact_encode" {
     var compact_u32: CompactUint32 = .{ .value = 1 };

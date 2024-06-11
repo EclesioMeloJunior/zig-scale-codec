@@ -7,12 +7,13 @@ const compact = @import("compact.zig");
 const iterator = @import("iterator.zig");
 
 const Errors = error{
+    CouldNotReadFromIterator,
     UnexpectedByte,
     TypeNotSupported,
     UnexpectedEnd,
     EncodingOptional,
     TooManyElementsInColletion,
-} || std.mem.Allocator.Error;
+} || iterator.Errors || compact.Errors || std.mem.Allocator.Error;
 
 pub fn SizeHint(comptime T: type, value: T) usize {
     if (T == []const u8) {
@@ -199,12 +200,32 @@ pub fn Result(comptime ok_t: type, comptime err_t: type) type {
                 },
             }
         }
+
+        pub fn decode(iter: *iterator.Iterator(u8)) Errors!Self {
+            if (iter.next()) |byte| {
+                switch (byte) {
+                    0x00 => return Self{
+                        .Ok = try Decode(ok_t, iter),
+                    },
+                    0x01 => return Self{
+                        .Err = try Decode(err_t, iter),
+                    },
+                    else => return Errors.UnexpectedByte,
+                }
+            }
+            return Errors.UnexpectedEnd;
+        }
     };
 }
 
 pub fn Decode(comptime T: type, iter: *iterator.Iterator(u8)) Errors!T {
-    switch (T) {
-        bool => {
+    if (T == []const u8) {
+        return try decode_const_byte_slice(iter);
+    }
+
+    switch (@typeInfo(T)) {
+        .Int => return try dencode_integer(T, iter),
+        .Bool => {
             if (iter.next()) |byte| {
                 return switch (byte) {
                     0x01 => true,
@@ -214,8 +235,43 @@ pub fn Decode(comptime T: type, iter: *iterator.Iterator(u8)) Errors!T {
             }
             return Errors.UnexpectedEnd;
         },
+        .Union => {
+            if (std.meta.hasFn(T, "decode")) {
+                return T.decode(iter);
+            }
+            unreachable;
+        },
         else => return Errors.TypeNotSupported,
     }
+}
+
+fn dencode_integer(comptime T: type, iter: *iterator.Iterator(u8)) Errors!T {
+    var encoded_integer: [@sizeOf(T)]u8 = undefined;
+    const n = iter.take(&encoded_integer) catch |err| return err;
+    if (n == 0) {
+        return Errors.CouldNotReadFromIterator;
+    }
+
+    return binary.LittleEndianDecode(
+        T,
+        @as(*const [@sizeOf(T)]u8, @ptrCast(&encoded_integer)),
+    );
+}
+
+fn decode_const_byte_slice(iter: *iterator.Iterator(u8)) Errors![]const u8 {
+    const slice_len = try compact.Decode(usize, iter);
+    var encoded_slice = try std.ArrayList(u8).initCapacity(
+        std.heap.page_allocator,
+        slice_len.value,
+    );
+    defer encoded_slice.deinit();
+
+    var idx: usize = 0;
+    while (idx < slice_len.value) : (idx += 1) {
+        try encoded_slice.append(iter.next().?);
+    }
+
+    return encoded_slice.toOwnedSlice();
 }
 
 test "decode bool" {
@@ -236,6 +292,48 @@ test "decode bool" {
         var iter = iterator.Iterator(u8).new(tt.encoded);
         const out = try Decode(bool, &iter);
         try testing.expect(out == tt.expected);
+    }
+}
+
+fn DecodeTestRunner(comptime T: type) type {
+    return struct {
+        fn run(cases: []T) !void {
+            for (cases) |tt| {
+                const size_hint = SizeHint(T, tt);
+                var encoded_bytes = try std.ArrayList(u8).initCapacity(
+                    testing.allocator,
+                    size_hint,
+                );
+                defer encoded_bytes.deinit();
+
+                try Encode(T, tt, &encoded_bytes);
+
+                var encoded_type = iterator.Iterator(u8).new(encoded_bytes.items);
+                const decoded_result = try Decode(T, &encoded_type);
+
+                try testing.expectEqual(tt, decoded_result);
+            }
+        }
+    };
+}
+
+test "decode Result type" {
+    {
+        var cases = [_]Result(u64, u64){
+            .{ .Ok = 10 },
+            .{ .Err = 99 },
+        };
+
+        try DecodeTestRunner(Result(u64, u64)).run(&cases);
+    }
+
+    {
+        var cases = [_]Result([]const u8, Result(u64, u64)){
+            .{ .Ok = "okok" },
+            .{ .Err = .{ .Err = 100 } },
+        };
+
+        try DecodeTestRunner(Result([]const u8, Result(u64, u64))).run(&cases);
     }
 }
 
